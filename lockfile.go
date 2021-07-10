@@ -32,12 +32,12 @@ func (t TemporaryError) Temporary() bool { return true }
 
 // Various errors returned by this package
 var (
-	ErrBusy          = TemporaryError("Locked by other process")             // If you get this, retry after a short sleep might help
-	ErrNotExist      = TemporaryError("Lockfile created, but doesn't exist") // If you get this, retry after a short sleep might help
-	ErrNeedAbsPath   = errors.New("Lockfiles must be given as absolute path names")
-	ErrInvalidPid    = errors.New("Lockfile contains invalid pid for system")
-	ErrDeadOwner     = errors.New("Lockfile contains pid of process not existent on this system anymore")
-	ErrRogueDeletion = errors.New("Lockfile owned by me has been removed unexpectedly")
+	ErrBusy          = TemporaryError("locked by other process")             // If you get this, retry after a short sleep might help
+	ErrNotExist      = TemporaryError("lockfile created, but doesn't exist") // If you get this, retry after a short sleep might help
+	ErrNeedAbsPath   = errors.New("lockfiles must be given as absolute path names")
+	ErrInvalidPid    = errors.New("lockfile contains invalid pid for system")
+	ErrDeadOwner     = errors.New("lockfile contains pid of process not existent on this system anymore")
+	ErrRogueDeletion = errors.New("lockfile owned by me has been removed unexpectedly")
 )
 
 // New describes a new filename located at the given absolute path.
@@ -53,9 +53,14 @@ func New(path string) (Lockfile, error) {
 func (l Lockfile) GetOwner() (*os.Process, error) {
 	name := string(l)
 
-	// Ok, see, if we have a stale lockfile here
+	// Ok, see, if we have a stale lockfile here.
 	content, err := ioutil.ReadFile(name)
 	if err != nil {
+		// It's possible the owner deleted the lockfile before we can read it.
+		// Return ErrNotExist to force the caller to retry.
+		if os.IsNotExist(err) {
+			return nil, ErrNotExist
+		}
 		return nil, err
 	}
 
@@ -177,7 +182,7 @@ func (l Lockfile) Unlock() error {
 	default:
 		// This is an application error or system error.
 		// So give a better error for logging here.
-		if os.IsNotExist(err) {
+		if err == ErrNotExist {
 			return ErrRogueDeletion
 		}
 		// Other errors -> defensively fail and let caller handle this
